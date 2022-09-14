@@ -220,6 +220,7 @@ An example of a numbered molecule is below (the unnumbered atom has index 0):
 To manually specify a set of pharmacophoric points, you should use the `do_manual_pharm_specification.sh` bash script, which should be run as follows:
 
 ```
+cd data_prep
 bash do_manual_pharm_specification.sh <fragment_SDF> <fragment_SMILES> <protein_PDB> <directory_to_store_output>
 ```
 
