@@ -181,8 +181,8 @@ class STRIFE:
             print('Calculating Fragment Hotspot Map for input protein...\n')
             print('This may take a few minutes...\n')
                 
-            self.preprocessing.calculateFHM(args.protein, args.calculated_hotspots)
-            self.hotspotsLoc = f'{args.calculated_hotspots}/out.zip'
+            self.preprocessing.calculateFHM(args.protein, args.calculate_hotspots)
+            self.hotspotsLoc = f'{args.calculate_hotspots}/out.zip'
             print(f'FHM calculation complete. Output saved at {self.hotspotsLoc}')
         
         
