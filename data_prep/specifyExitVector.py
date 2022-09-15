@@ -46,27 +46,44 @@ def addDummyAtomToMol(mol, atomIdx):
         if atomIdx in list(features_dict.keys()):
             print(f'you have selected a functional group as an exit vector of type: {features_dict[atomIdx]}')
 
-        if features_dict[atomIdx]=='Acceptor':
-            #try replacing with another acceptor
-            rwmol = Chem.RWMol(mol)
+            if features_dict[atomIdx]=='Acceptor':
+                #try replacing with another acceptor
+                rwmol = Chem.RWMol(mol)
+                
+                rwmol.ReplaceAtom(atomIdx, Chem.Atom(rwmol.GetAtomWithIdx(atomIdx).GetAtomicNum()-1))
+
+                carbonAtomIdx = rwmol.AddAtom(Chem.Atom(6))
+                rwmol.AddBond(atomIdx, carbonAtomIdx, Chem.BondType.SINGLE)
+
+                dummyAtomIdx = rwmol.AddAtom(Chem.Atom(0)) #Add dummy atom and get its idx
+                rwmol.AddBond(carbonAtomIdx, dummyAtomIdx, Chem.BondType.SINGLE)
+
+            if features_dict[atomIdx]=='Donor':
+                #think this only crops up when we have an NH3+
+                #need to remove a hydrogen?
+                
+                rwmol = Chem.RWMol(mol)
+                #rwmol = Chem.RWMol(Chem.RemoveHs(mol, updateExplicitCount=True))
+                exit_atom = rwmol.GetAtomWithIdx(atomIdx)
+                
             
-            rwmol.ReplaceAtom(atomIdx, Chem.Atom(rwmol.GetAtomWithIdx(atomIdx).GetAtomicNum()-1))
+            
+                neighbor_idx =  exit_atom.GetNeighbors()[0].GetIdx()
 
-            carbonAtomIdx = rwmol.AddAtom(Chem.Atom(6))
-            rwmol.AddBond(atomIdx, carbonAtomIdx, Chem.BondType.SINGLE)
+                rwmol.RemoveAtom(atomIdx)
+                new_N = rwmol.AddAtom(Chem.Atom(7))
+                rwmol.AddBond(neighbor_idx, new_N, Chem.BondType.SINGLE )
+                dummyAtomIdx = rwmol.AddAtom(Chem.Atom(0))
+                rwmol.AddBond(new_N, dummyAtomIdx, Chem.BondType.SINGLE)
+                rwmol.GetAtomWithIdx(new_N).SetFormalCharge(1)
+           
+            
+        else:
+            #not a donor or acceptor, just a weird atom - replace with the dummy atom
+            rwmol = Chem.RWMol(mol)
+            rwmol.ReplaceAtom(atomIdx,Chem.Atom(0))
+            
 
-            dummyAtomIdx = rwmol.AddAtom(Chem.Atom(0)) #Add dummy atom and get its idx
-            rwmol.AddBond(carbonAtomIdx, dummyAtomIdx, Chem.BondType.SINGLE)
-
-        if features_dict[atomIdx]=='Donor':
-            #need to remove a hydrogen?
-            embed()
-
-        
-
-        
-
-        
 
 
 
@@ -83,7 +100,7 @@ def addDummyAtomToMol(mol, atomIdx):
     #ensure that the number of HBAs and HBDs hasn't changed
     if Chem.Lipinski.NumHAcceptors(rwmol) != initial_num_HBA or Chem.Lipinski.NumHDonors(rwmol) != initial_num_HBD:
         print('You have altered the number of acceptors/donors in the initial fragment... there lies trouble ahead')
-        embed()
+        
  
     return rwmol
     

@@ -854,6 +854,12 @@ if __name__=='__main__':
 
 
 
+    #specify how the hotspots are found
+    #new addition for specifying residue
+
+    parser.add_argument('--residue_to_target', type = str, default = None, 
+            help='Instead of calculating hotspots with API, specify a residue ID to target. Acceptor and donor hotspots will then be placed on the acceptors/donors in the residue')
+
 
     #TODO
     #parser.add_argument('--compute_hotspot_distance', action = "store_true",
