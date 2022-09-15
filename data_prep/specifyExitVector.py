@@ -6,21 +6,85 @@ Created on Mon Nov  1 11:46:08 2021
 @author: hadfield
 """
 
+from pyexpat import features
 from rdkit import Chem
 from rdkit.Chem.Draw import MolToFile
+from rdkit import RDConfig
+from rdkit.Chem import ChemicalFeatures
+
+
 import sys
 import argparse
+from IPython import embed
+import os
+
+#Create feature factory
+fdefName = os.path.join(RDConfig.RDDataDir,'BaseFeatures.fdef')
+factory = ChemicalFeatures.BuildFeatureFactory(fdefName)
 
 
 def addDummyAtomToMol(mol, atomIdx):
     #Provide a molecule and atom index
-    #returns a molecule with a dummy atom connected to that atom
+  
+    initial_num_HBA = Chem.Lipinski.NumHAcceptors(mol)
+    initial_num_HBD = Chem.Lipinski.NumHDonors(mol)
+
+    #check whether the atom chosen is easy to elaborate from...
+
+ 
+    if mol.GetAtomWithIdx(atomIdx).GetImplicitValence() == 0:
+        print('you have selected a tricky atom to elaborate from!')
+
+        #if it is a donor or acceptor this is tricky because we don't want to change the number of hba/hbds in the original fragment!
+        features_dict = {}
+        for feature in factory.GetFeaturesForMol(mol):
+            if feature.GetFamily() not in ['Donor', 'Acceptor']:
+                continue
+            else:
+                features_dict[feature.GetAtomIds()[0]] = feature.GetFamily()
+
+        if atomIdx in list(features_dict.keys()):
+            print(f'you have selected a functional group as an exit vector of type: {features_dict[atomIdx]}')
+
+        if features_dict[atomIdx]=='Acceptor':
+            #try replacing with another acceptor
+            rwmol = Chem.RWMol(mol)
+            
+            rwmol.ReplaceAtom(atomIdx, Chem.Atom(rwmol.GetAtomWithIdx(atomIdx).GetAtomicNum()-1))
+
+            carbonAtomIdx = rwmol.AddAtom(Chem.Atom(6))
+            rwmol.AddBond(atomIdx, carbonAtomIdx, Chem.BondType.SINGLE)
+
+            dummyAtomIdx = rwmol.AddAtom(Chem.Atom(0)) #Add dummy atom and get its idx
+            rwmol.AddBond(carbonAtomIdx, dummyAtomIdx, Chem.BondType.SINGLE)
+
+        if features_dict[atomIdx]=='Donor':
+            #need to remove a hydrogen?
+            embed()
+
+        
+
+        
+
+        
+
+
+
+    else:
+        #not a complicated one!
+        #returns a molecule with a dummy atom connected to that atom
+        
+        rwmol = Chem.RWMol(mol)
+        dummyAtomIdx = rwmol.AddAtom(Chem.Atom(0)) #Add dummy atom and get its idx
+        rwmol.AddBond(atomIdx, dummyAtomIdx, Chem.BondType.SINGLE)
     
-    rwmol = Chem.RWMol(mol)
-    dummyAtomIdx = rwmol.AddAtom(Chem.Atom(0)) #Add dummy atom and get its idx
-    rwmol.AddBond(atomIdx, dummyAtomIdx, Chem.BondType.SINGLE)
-    
+
     Chem.SanitizeMol(rwmol)
+    #ensure that the number of HBAs and HBDs hasn't changed
+    if Chem.Lipinski.NumHAcceptors(rwmol) != initial_num_HBA or Chem.Lipinski.NumHDonors(rwmol) != initial_num_HBD:
+        print('You have altered the number of acceptors/donors in the initial fragment... there lies trouble ahead')
+        embed()
+ 
     return rwmol
     
 
