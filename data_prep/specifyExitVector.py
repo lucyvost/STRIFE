@@ -6,6 +6,7 @@ Created on Mon Nov  1 11:46:08 2021
 @author: hadfield
 """
 
+from logging import raiseExceptions
 from pyexpat import features
 from rdkit import Chem
 from rdkit.Chem.Draw import MolToFile
@@ -79,10 +80,16 @@ def addDummyAtomToMol(mol, atomIdx):
            
             
         else:
-            #not a donor or acceptor, just a weird atom - replace with the dummy atom
+            #not a donor or acceptor, just a weird atom - either replace with the dummy atom or add a carbon and elaborate from there
+           
             rwmol = Chem.RWMol(mol)
-            rwmol.ReplaceAtom(atomIdx,Chem.Atom(0))
-            
+            exit_atom = rwmol.GetAtomWithIdx(atomIdx)
+            if exit_atom.GetDegree ==1:
+                rwmol.ReplaceAtom(atomIdx,Chem.Atom(0))
+
+            else:
+                raise ValueError('The exit atom you have chosen is troublesome - try another!' )
+                        
 
 
 
@@ -95,11 +102,15 @@ def addDummyAtomToMol(mol, atomIdx):
         dummyAtomIdx = rwmol.AddAtom(Chem.Atom(0)) #Add dummy atom and get its idx
         rwmol.AddBond(atomIdx, dummyAtomIdx, Chem.BondType.SINGLE)
     
+    try:
+        Chem.SanitizeMol(rwmol)
 
-    Chem.SanitizeMol(rwmol)
+    except:
+        raise ValueError('The exit atom you have chosen is troublesome - try another!' )
+
     #ensure that the number of HBAs and HBDs hasn't changed
     if Chem.Lipinski.NumHAcceptors(rwmol) != initial_num_HBA or Chem.Lipinski.NumHDonors(rwmol) != initial_num_HBD:
-        print('You have altered the number of acceptors/donors in the initial fragment... there lies trouble ahead')
+        raise ValueError('You have altered the number of acceptors/donors in the initial fragment... try choosing another exit vector')
         
  
     return rwmol

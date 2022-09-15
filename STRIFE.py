@@ -19,7 +19,7 @@ import os
 #import warnings
 #warnings.filterwarnings("ignore",category=DeprecationWarning)
 #warnings.filterwarnings("ignore",category=DeprecationWarning, module = 'tensorflow')
-
+from Bio.PDB import *
 from elaborations import elaborate
 import numpy as np
 import pandas as pd
@@ -47,6 +47,7 @@ from rdkit.Chem import rdMMPA
 from rdkit.Chem import AllChem
 from rdkit.Chem.Draw import IPythonConsole 
 from rdkit import RDLogger
+from IPython import embed
 RDLogger.DisableLog('rdApp.*') #Supress annoying RDKit output
 
 import pickle
@@ -149,7 +150,8 @@ class STRIFE:
         
         
         #Check that we're inputting a valid pharmacophoric representation
-        assert bool(args.hotspots_output) + bool(args.calculate_hotspots) + bool(args.load_specified_pharms) == 1, 'Please specify exactly one way for STRIFE to incorporate structural information. Either provide an already calculated FHM, request that STRIFE calculates an FHM, or provide your own pharmacophoric points'
+        assert bool(args.zip_output) + bool(args.calculate_hotspots) + bool(args.load_specified_pharms) + bool(args.residue_to_target) == 1, 'Please specify exactly one way for STRIFE to incorporate structural information. Either provide an already calculated FHM, request that STRIFE calculates an FHM, or provide your own pharmacophoric points'
+        
         
 
         print('Argument checking complete.')
@@ -174,13 +176,16 @@ class STRIFE:
         
         
         
-        if args.hotspots_output is not None:
-            self.hotspotsLoc = args.hotspots_output
+        if args.zip_output is not None:
+            self.hotspotsLoc = args.zip_output
         
         if bool(args.calculate_hotspots):
             print('Calculating Fragment Hotspot Map for input protein...\n')
             print('This may take a few minutes...\n')
-                
+            if args.output_calculated_hotspots == None:
+                args.calculate_hotspots = self.storeLoc
+            else:
+                args.calculate_hotspots = args.output_calculated_hotspots
             self.preprocessing.calculateFHM(args.protein, args.calculate_hotspots)
             self.hotspotsLoc = f'{args.calculate_hotspots}/out.zip'
             print(f'FHM calculation complete. Output saved at {self.hotspotsLoc}')
@@ -208,8 +213,48 @@ class STRIFE:
                 hotspotsDict['Acceptor'] = Chem.MolFromMolFile(f'{self.storeLoc}/acceptorHotspot.sdf')
                 hotspotsDict['Donor'] = Chem.MolFromMolFile(f'{self.storeLoc}/donorHotspot.sdf')
         
+        if bool(args.residue_to_target):
         
-        
+            
+
+            self.HotspotsInProtein = True
+
+            chain_target = args.residue_to_target[4]
+            res_id_target = f"""(' ', {args.residue_to_target[0:3]}, ' ')"""
+
+            protein_parser = PDBParser()
+            protein_structure = protein_parser.get_structure("target", args.protein)
+            for chain in protein_structure.get_chains():
+                if chain.get_id()==chain_target:
+                    select_chain = chain
+
+            for residue in select_chain.get_residues():
+                if str(residue.get_id()) == res_id_target:
+                    select_res = residue
+
+            target_residue_atoms = [atom for atom in select_res.get_atoms()]
+
+            hotspot_coordinates = np.average([atom.get_coord() for atom in select_res.get_atoms()], axis=0)
+
+            #make an rdkit molecule with coordinates hotspot_coordinates
+            
+            hotspot_df = pd.DataFrame({'x':[hotspot_coordinates[0]], 'y':[hotspot_coordinates[1]], 'z':[hotspot_coordinates[2]], 'size':[1]})
+            
+
+            Chem.MolToMolFile(self.preprocessing.hotspotsDFToMol(hotspot_df, cutoff=0, atomType='I'), f'{self.storeLoc}/acceptorHotspot.sdf')
+            Chem.MolToMolFile(self.preprocessing.hotspotsDFToMol(hotspot_df, cutoff=0, atomType='P'), f'{self.storeLoc}/donorHotspot.sdf')
+
+    
+            hotspotsDict = {}
+            hotspotsDict['Acceptor'] = Chem.MolFromMolFile(f'{self.storeLoc}/acceptorHotspot.sdf')
+            hotspotsDict['Donor'] = Chem.MolFromMolFile(f'{self.storeLoc}/donorHotspot.sdf')
+
+            if args.check_frags_apolar:
+                self.fragInApolar = self.preprocessing.fragInApolar #In the processHotspots function we check whether the fragment lies within apolar density.
+            else:
+                self.fragInApolar = "Not checked"
+        else: 
+            self.HotspotsInProtein = False
         print('Preprocessing fragment')
         
         #Store fragment SMILES in the output directory:
@@ -240,7 +285,7 @@ class STRIFE:
         
         
         
-        if args.load_specified_pharms == False:
+        if bool(args.zip_output) == True:
             #i.e. we haven't already specified the pharmacophoric points
             
             #Read in hotspots output
@@ -379,9 +424,12 @@ class STRIFE:
         self.singleQuasiActives = {}
         
         for k in self.hSingles.keys():
-            #Select up to 5 molecules where the pharmaocphore is within 2A of the pharmacophoric point
-            self.singleQuasiActives[k] = self.singleDistances[k].loc[self.singleDistances[k]['distance'] < 2].drop_duplicates('smiles').head(5)
 
+            if self.HotspotsInProtein == False:
+            #Select up to 5 molecules where the pharmaocphore is within 2A of the pharmacophoric point
+                self.singleQuasiActives[k] = self.singleDistances[k].loc[self.singleDistances[k]['distance'] < 2].drop_duplicates('smiles').head(5)
+            elif self.HotspotsInProtein == True:
+                self.singleQuasiActives[k] = self.singleDistances[k].loc[self.singleDistances[k]['distance'] < 3.3].drop_duplicates('smiles').head(5)
         
     
     def refinement(self, totalNumElabs = 250, n_cores = None):
@@ -598,7 +646,11 @@ class STRIFE:
         #######IDENTIFY QUASI-ACTIVES#########
         
         #Select up to 5 molecules where the pharmaocphore is within 2A of the pharmacophoric point for all specified pharmacophoric points
-        self.multiQuasiActives = self.multiDistances.loc[self.multiDistances['distance'] < 2].drop_duplicates('smiles').head(5)
+        if self.HotspotsInProtein == False:
+        #Select up to 5 molecules where the pharmaocphore is within 2A of the pharmacophoric point
+            self.singleQuasiActives[k] = self.singleDistances[k].loc[self.singleDistances[k]['distance'] < 2].drop_duplicates('smiles').head(5)
+        elif self.HotspotsInProtein == True:
+            self.singleQuasiActives[k] = self.singleDistances[k].loc[self.singleDistances[k]['distance'] < 3.3].drop_duplicates('smiles').head(5)
         
         
         #########REFINEMENT###############
@@ -820,18 +872,36 @@ if __name__=='__main__':
     
     parser.add_argument('--protein', '-p', type = str, required = True,
                         help = 'Location of protein pdb file (should have already been protonated)')
+
+
+
     parser.add_argument('--output_directory', '-o', type = str, default = '.', 
                         help = 'Directory to store output (default = current directory)')
 
-    
-    parser.add_argument('--hotspots_output', '-z', type = str, default = None,
+
+
+    #where to find input hotspots... 
+    # use zip   
+    parser.add_argument('--zip_output', '-z', type = str, default = None,
                         help = 'Location of zip file containing hotspots output, if already calculated')
-    parser.add_argument('--calculate_hotspots', '-c', type = str, default = None,
-                        help = 'Location to save a FHM - if not None, then STRIFE will calculate an FHM, store it in the specified location and use it to generate molecules')
-    #parser.add_argument('--calculated_hotspots_dir', '-d', type = str, default = None, 
-    #                    help = 'Directory to store the calculated hotspots map - should only be used if calculate_hotspots = True')
+    #use sdfs
     parser.add_argument('--load_specified_pharms', '-m', action = "store_true", 
                         help = 'Use pharmacophores that have been manually specfied instead of ones derived from FHMs. If True, the output_directory should contain at least one of donorHotspot.sdf or acceptorHotspot.sdf')    
+
+    #new addition for specifying residue
+    parser.add_argument('--residue_to_target', type = str, default = None, 
+            help='Instead of calculating hotspots with API, specify a residue ID to target. Acceptor and donor hotspots will then be placed on the acceptors/donors in the residue')
+
+
+    #if not already got hotspots, calculate them
+    parser.add_argument('--calculate_hotspots', '-c', action = "store_true",
+                        help = 'calculate a FHM')
+
+    parser.add_argument('--output_calculated_hotspots' , type=str,
+                        help='Where to store FHM being calculated. Default, current directory')
+
+
+
     parser.add_argument('--path_length_model', type = str, default = 'models/pathLengthPred_saved.pickle', 
                         help = 'Location of saved SVM for predicting path distances')
     
@@ -851,15 +921,6 @@ if __name__=='__main__':
 
     parser.add_argument('--num_cpu_cores', '-cpu', type = int, default = 1, 
             help='Number of CPU cores to use for docking and other computations. Specifiying -1 will use all available cores')
-
-
-
-    #specify how the hotspots are found
-    #new addition for specifying residue
-
-    parser.add_argument('--residue_to_target', type = str, default = None, 
-            help='Instead of calculating hotspots with API, specify a residue ID to target. Acceptor and donor hotspots will then be placed on the acceptors/donors in the residue')
-
 
     #TODO
     #parser.add_argument('--compute_hotspot_distance', action = "store_true",
