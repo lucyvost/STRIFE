@@ -218,10 +218,10 @@ class STRIFE:
             
 
             self.HotspotsInProtein = True
-
-            chain_target = args.residue_to_target[4]
-            res_id_target = f"""(' ', {args.residue_to_target[0:3]}, ' ')"""
-
+            
+            chain_target = args.residue_to_target[args.residue_to_target.index(':')+1]
+            res_id_target = f"""(' ', {args.residue_to_target[0:args.residue_to_target.index(':')]}, ' ')"""
+            
             protein_parser = PDBParser()
             protein_structure = protein_parser.get_structure("target", args.protein)
             for chain in protein_structure.get_chains():
@@ -328,13 +328,17 @@ class STRIFE:
                     pos = np.array(hotspotsDict[pharm].GetConformer().GetAtomPosition(atom.GetIdx()))
 
                     self.HPositions.append(pos)
-                    self.Distances.append(self.preprocessing.vectorDistance(pos, self.exitVectorPos))
+                    if self.HotspotsInProtein == False:
+                        self.Distances.append(self.preprocessing.vectorDistance(pos, self.exitVectorPos))
+                    elif self.HotspotsInProtein == True:
+                            self.Distances.append(self.preprocessing.vectorDistance(pos, self.exitVectorPos) - 2)
                     self.Angles.append(self.preprocessing.vectorAngle(pos, self.exitVectorPos))
                     self.HType.append(pharm)
                     self.origAtomIdx.append(atom.GetIdx()) #Atom index so we can recover it if necessary
 
         self.HotspotsDF = pd.DataFrame({'distFromExit':self.Distances, 'angFromExit':self.Angles, 'position':self.HPositions, 'type':self.HType}).sort_values('distFromExit', ascending = True).reset_index(drop = True)
 
+        
 
         self.hSingles = self.preprocessing.prepareProfiles(self.HotspotsDF)
         self.hMulti = self.preprocessing.prepareProfiles(self.HotspotsDF, single = False) #For satisfying multiple pharmacophoric point simultaneously
