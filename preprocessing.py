@@ -30,6 +30,7 @@ from hotspots.calculation import Runner
 from hotspots.grid_extension import Grid
 from hotspots import hs_io
 
+from IPython import embed
 
 class preprocessing:
     
@@ -628,7 +629,7 @@ class preprocessing:
     
     
     def processHotspots(self, results, exitVecPos, fragMol, sizeCutOff = 8, minDistance = 1.5, maxDistance = 5, DAthreshold = 10, ApolarThreshold = 1, verbose = False):
-        
+      
         #Get density grids
         aboveThresholdDictDonor = results.super_grids['donor'].grid_value_by_coordinates(threshold = DAthreshold)
         aboveThresholdDictAcceptor = results.super_grids['acceptor'].grid_value_by_coordinates(threshold = DAthreshold)
@@ -697,6 +698,8 @@ class preprocessing:
             distanceFromExit.append(self.vectorDistance(exitVecPos, i))
             
         #Only keep density close to the exit vector (but not too close!)
+
+        
         coordsWithDistance = pd.DataFrame({'x': coords[:,0], 'y' : coords[:,1], 'z' : coords[:,2], 'dist':distanceFromExit})
         within_N_Angstroms = coordsWithDistance.loc[coordsWithDistance['dist'] < maxDistance]
         within_N_Angstroms = within_N_Angstroms.loc[within_N_Angstroms['dist'] > minDistance]
@@ -705,8 +708,13 @@ class preprocessing:
             intermediate1 = within_N_Angstroms #Density after thresholding for distance
         
         #Only keep density such that the fragment atom which is closest to the voxel is the exit point
-        within_N_Angstroms = self.compareEVToOtherAtoms(within_N_Angstroms, exitVecPos, fragMol)
-        within_N_Angstroms = within_N_Angstroms.loc[within_N_Angstroms['closestToEV']]
+
+
+        #if generating from scratch don't want this check
+        #if maxDistance < 10:
+
+        #    within_N_Angstroms = self.compareEVToOtherAtoms(within_N_Angstroms, exitVecPos, fragMol)
+        #    within_N_Angstroms = within_N_Angstroms.loc[within_N_Angstroms['closestToEV']]
         
     
         if verbose:

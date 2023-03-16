@@ -13,6 +13,7 @@ from rdkit.Chem.Draw import MolToFile
 from rdkit import RDConfig
 from rdkit.Chem import ChemicalFeatures
 
+from rdkit.Chem import Lipinski
 
 import sys
 import argparse

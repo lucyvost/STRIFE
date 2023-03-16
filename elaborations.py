@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 import tempfile
 import os
-
+from IPython import embed
 
 #########RDKit Modules############
 from rdkit import Chem
@@ -72,7 +72,7 @@ class elaborate:
         alk = 'C'*int(alkLength) + '[*:1]'
     
         fragAlk = f'{fragment}.{alk}'
-        Chem.MolFromSmiles(fragAlk)
+       
     
         #Identify dummy atoms and their neighbors
         m = Chem.MolFromSmiles(fragAlk)
@@ -103,9 +103,11 @@ class elaborate:
         return fullAlk
         
         
-    def createSmi(self, fragment, alkLength):
-
-        full = self.addAlkane(fragment, alkLength)
+    def createSmi(self, fragment, alkLength, full = None):
+        if bool(full):
+            print(full)
+        else:
+            full = self.addAlkane(fragment, alkLength)
         chopped = 'C'*int(alkLength) + '[*:1]'
         smi = pd.DataFrame({'full':full, 'chopped':chopped, 'frag':fragment, 'dist':[0], 'ang':[0]})
     
@@ -142,7 +144,7 @@ class elaborate:
         return processed_data
     
     def replacePharmProfile(self, newProfile, jsonF, replacementType='Orig'):
-
+        
         if replacementType not in ['Orig', 'Count', 'Pharm']:
             print('New pharmacophoric profile must be either Orig/Count/Pharm')
             return -1
@@ -165,15 +167,17 @@ class elaborate:
         return jsonF
     
     
-    def generateMolsFromSpecificProfile(self, frag, elabLength, modelType, profile, numToGenerate = 250, smiName = 'outSmi'):
+    def generateMolsFromSpecificProfile(self, frag, elabLength, modelType, profile, fromScratch = False, numToGenerate = 250, smiName = 'outSmi'):
 
     #First want to create a model outside of the function so that we only need to update the model.valid_data attribute
     #Instead of loading the entire model repeatedly
 
         tempDir = tempfile.TemporaryDirectory()
 
-
-        smi = self.createSmi(frag, elabLength)
+        if fromScratch:
+            smi = self.createSmi( frag, elabLength, 'C'*int(elabLength))
+        else:
+            smi = self.createSmi(frag, elabLength)
         smi.to_csv(f'{tempDir.name}/{smiName}.smi', header = False, index = False, sep = ' ')
     
         smi.columns = ['full', 'chopped', 'frag', 'dist', 'ang']
@@ -181,10 +185,12 @@ class elaborate:
         smi.to_csv(f'{tempDir.name}/{smiName}Pharm.smi', header = None, index = None, sep = ' ')
     
         raw_data = s2JSON.train_valid_split(f'{tempDir.name}/{smiName}Pharm.smi')['valid']
-    
+        #ahhh hacky
+        raw_data[0]['smiles_frag'] = '*C'
         jsonFile = self.preprocessSingle(raw_data)
     
         #Replace pharmacophoric profile
+        
         jsonFile = self.replacePharmProfile(profile, jsonFile, modelType)
     
         jsonName = f'{tempDir.name}/{smiName}Json{modelType}.json'
@@ -271,7 +277,7 @@ class elaborate:
         return df
     
 
-    def makeElaborationsAndFilter(self, Hotspot, jobName = 'target', numElabsPerPoint = 250, n_cores = 1):
+    def makeElaborationsAndFilter(self, Hotspot, fromScratch, jobName = 'target', numElabsPerPoint = 250, n_cores = 1):
 
         elabLengths, profiles = Hotspot.determineProfiles()
 
@@ -284,7 +290,7 @@ class elaborate:
                 
             print(elabLengths[idx], profiles[idx], fragSmiles)
 
-            g = self.generateMolsFromSpecificProfile(fragSmiles, elabLengths[idx], 'Count', profiles[idx], numToGenerate = numElabsPerPoint, smiName=jobName)
+            g = self.generateMolsFromSpecificProfile(fragSmiles, elabLengths[idx], 'Count', profiles[idx], fromScratch = fromScratch, numToGenerate = numElabsPerPoint, smiName=jobName)
             #Filter:
             g = self.filterGeneratedMols(g, n_cores = n_cores)
 

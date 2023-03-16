@@ -105,7 +105,7 @@ class STRIFE:
 
 
 
-
+     
         if args.fragment_smiles is not None:
             
             #Check whether args.fragment_smiles is a file
@@ -118,7 +118,13 @@ class STRIFE:
                     if Chem.MolFromSmiles(args.fragment_smiles).GetNumHeavyAtoms() > 0:
                         smiles_file = False
                     else: 
-                        raise ValueError('Fragment must have at least one heavy atom')
+
+                        #check whether we're making from scratch - if we are, heavy atom count will be 0
+
+                        if args.full_molecule_generation == True:
+                            smiles_file = False
+                        else:
+                            raise ValueError('Fragment must have at least one heavy atom')
                 except:
                     
                     raise ValueError("The supplied fragment_smiles doesn't appear to be a file and RDKit is unable to parse it as a molecule. Please check that you're providing a valid fragment")
@@ -263,17 +269,25 @@ class STRIFE:
         
             
         fragMol3D = Chem.SDMolSupplier(args.fragment_sdf)[0]
+        
+
+        if args.full_molecule_generation:
+            print('performing full mol generation')
+            #can't do the standard preprocessing stuff
             
-        fc, evI, evp, fc2 = self.preprocessing.preprocessFragment(fragSmiles, fragMol3D)
-        
-        #Save fragment SDF
-        Chem.MolToMolFile(fc, f'{self.storeLoc}/frag.sdf')
-        
-        #Save constraint SDF (will need to be converted to Mol2 using obabel)
-        Chem.MolToMolFile(fc2, f'{self.storeLoc}/constraint.sdf')
-        
-        #Save fragment exit position
-        np.savetxt(f'{self.storeLoc}/evp.txt', evp)
+
+                       
+        else:
+            fc, evI, evp, fc2 = self.preprocessing.preprocessFragment(fragSmiles, fragMol3D)
+            
+            #Save fragment SDF
+            Chem.MolToMolFile(fc, f'{self.storeLoc}/frag.sdf')
+            
+            #Save constraint SDF (will need to be converted to Mol2 using obabel)
+            Chem.MolToMolFile(fc2, f'{self.storeLoc}/constraint.sdf')
+            
+            #Save fragment exit position
+            np.savetxt(f'{self.storeLoc}/evp.txt', evp)
         
         
         #Convert the constraint.sdf file to constraint.mol2 (for constrained docking in GOLD)
@@ -292,8 +306,40 @@ class STRIFE:
             reader = HotspotReader(self.hotspotsLoc)
             reader.__enter__()
             results = reader.read()
-             
-            hotspotsDict = self.preprocessing.processHotspots(results, evp, fc)
+            if args.full_molecule_generation:
+                #have a fake evp which is just the centroid of ligand atom coordinates
+                positions = []
+                #also use the whole ligand as fc
+                for atom_idx in range(fragMol3D.GetNumHeavyAtoms()):
+                    positions.append(np.array(fragMol3D.GetConformer().GetAtomPosition(atom_idx)))
+                evp = np.mean(positions, 0)
+
+                #just put a carbon at that position as the constraint file
+
+                fakeconstraint = 'C'
+
+                molPharmProf = Chem.MolFromSmiles(fakeconstraint)
+                
+                #Now add the 3d position to each atom
+                conf = Chem.Conformer(molPharmProf.GetNumAtoms())
+                
+                conf.SetAtomPosition(0, list(evp))
+            
+                conf.SetId(0)
+                molPharmProf.AddConformer(conf)      
+
+                Chem.MolToMolFile(molPharmProf, f'{self.storeLoc}/constraint.sdf')
+
+                obConversion = openbabel.OBConversion()
+                obConversion.SetInAndOutFormats("sdf", "mol2")
+                mol = openbabel.OBMol()
+                obConversion.ReadFile(mol, f'{self.storeLoc}/constraint.sdf')
+                obConversion.WriteFile(mol, f'{self.storeLoc}/constraint.mol2')
+                
+                fc = molPharmProf
+                hotspotsDict = self.preprocessing.processHotspots(results, evp, fc, minDistance = 8, maxDistance = 15)
+            else:
+                hotspotsDict = self.preprocessing.processHotspots(results, evp, fc)
             Chem.MolToMolFile(hotspotsDict['Acceptor'], f'{self.storeLoc}/acceptorHotspot.sdf')
             Chem.MolToMolFile(hotspotsDict['Donor'], f'{self.storeLoc}/donorHotspot.sdf')
 
@@ -306,11 +352,12 @@ class STRIFE:
         
         self.exitVectorPos = evp
         self.frag = f'{self.storeLoc}/frag_smiles.smi'
+
         self.fragCore = fc
         self.constraintFile = f'{self.storeLoc}/constraint.mol2'
         self.cavityLigandFile = args.fragment_sdf #Used for docking in GOLD to define the binding pocket
         self.protein = args.protein
-        
+        self.full_molecule_generation = args.full_molecule_generation
         
         
         
@@ -320,7 +367,7 @@ class STRIFE:
         self.Distances = [] #Distance from exit vector
         self.Angles = [] #Angle from exit vector
         self.origAtomIdx = []
-
+       
         for pharm in ['Acceptor', 'Donor']:
 
             if hotspotsDict[pharm].GetNumHeavyAtoms() > 0: #Changed self.hotspotsDict to hotspotsDict here
@@ -369,7 +416,7 @@ class STRIFE:
             print('Fragment not completely contained within apolar region - to disable, omit check_frags_apolar argument')
         else:
             if self.HotspotsDF.shape[0] > 0:
-                self.exploration(numElabsPerPoint = numElabsPerPoint)
+                self.exploration(numElabsPerPoint = numElabsPerPoint, fromScratch=self.full_molecule_generation)
                 self.identifyQuasiActives()
                 
                 numQuasiActives = sum([self.singleQuasiActives[k].shape[0] for k in self.singleQuasiActives.keys()])
@@ -389,7 +436,7 @@ class STRIFE:
         #TODO - Implement
         pass
     
-    def exploration(self, numElabsPerPoint = 250, n_cores = None):
+    def exploration(self, numElabsPerPoint = 250, n_cores = None, fromScratch = False):
         
         #Generate elaborations using the count model
         #Dock them using the constrained docking functionality in GOLD
@@ -411,12 +458,13 @@ class STRIFE:
             self.singleElabs[k] = HotspotSingle(self.hSingles[k], self.frag, self.clf, self.constraintFile, self.cavityLigandFile, self.protein)
             
             #Make elaborations using the counts model and filter to retain those with the desired pharmacophoric profile
-            self.singleElabs[k] = self.elaborate.makeElaborationsAndFilter(self.singleElabs[k], numElabsPerPoint=numElabsPerPoint, n_cores = n_cores)
+            self.singleElabs[k] = self.elaborate.makeElaborationsAndFilter(self.singleElabs[k], fromScratch, numElabsPerPoint=numElabsPerPoint, n_cores = n_cores)
             
             #Prepare the filtered elaborations to be docked in GOLD
             self.singleElabs[k] = self.docking.prepareForDocking(self.singleElabs[k], self.fragCore, f'{self.storeLoc}/countsElabs{k}.sdf')
             
             #do docking
+            
             self.singleDocks[k] = self.docking.dockLigandsMP(self.singleElabs[k].dockingFname, self.constraintFile, self.cavityLigandFile, self.protein, n_processes = n_cores) #Dock in parallel
             
             #Compute distance to pharmacophoric point
@@ -468,7 +516,7 @@ class STRIFE:
     
             with open(self.frag, 'r') as f:
                 fragSmiles = f.read()
-    
+            
             for k in self.hSingles.keys():
                 self.singlePharmElabs[k] = pharmElabs()
                 self.singlePharmElabs[k].profileElabs = self.elaborate.makePharmElabsQuasiActives(self.singleQuasiActives[k], fragSmiles, filterMols = False) #make elaborations using the quasi actives profiles
@@ -882,7 +930,8 @@ if __name__=='__main__':
     parser.add_argument('--output_directory', '-o', type = str, default = '.', 
                         help = 'Directory to store output (default = current directory)')
 
-
+    parser.add_argument('--full_molecule_generation', action = "store_true", 
+                        help = 'Rather than performing elaboration, generate molecule from scratch')
 
     #where to find input hotspots... 
     # use zip   
@@ -932,7 +981,11 @@ if __name__=='__main__':
 
     arguments = parser.parse_args()
     
+
+    if arguments.full_molecule_generation == True:
+        arguments.fragment_smiles = '[*:1]C'
     #Define STRIFE model
+    
     STRIFE_model = STRIFE(arguments)
     
     #Set it running

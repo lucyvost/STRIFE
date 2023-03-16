@@ -25,7 +25,7 @@ import sys
 from random import sample
 from functools import partial
 import glob
-
+from IPython import embed
 #########RDKit Modules############
 import rdkit
 from rdkit import Chem
