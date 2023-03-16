@@ -186,7 +186,7 @@ class elaborate:
     
         raw_data = s2JSON.train_valid_split(f'{tempDir.name}/{smiName}Pharm.smi')['valid']
         #ahhh hacky
-        raw_data[0]['smiles_frag'] = '*C'
+        raw_data[0]['smiles_frag'] = '*CC'
         jsonFile = self.preprocessSingle(raw_data)
     
         #Replace pharmacophoric profile
