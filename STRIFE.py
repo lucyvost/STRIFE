@@ -337,7 +337,7 @@ class STRIFE:
                 obConversion.WriteFile(mol, f'{self.storeLoc}/constraint.mol2')
                 
                 fc = molPharmProf
-                hotspotsDict = self.preprocessing.processHotspots(results, evp, fc, minDistance = 10, maxDistance = 15)
+                hotspotsDict = self.preprocessing.processHotspots(results, evp, fc, sizeCutOff=0, minDistance = 8, maxDistance = 15)
             else:
                 hotspotsDict = self.preprocessing.processHotspots(results, evp, fc)
             Chem.MolToMolFile(hotspotsDict['Acceptor'], f'{self.storeLoc}/acceptorHotspot.sdf')
@@ -983,7 +983,7 @@ if __name__=='__main__':
     
 
     if arguments.full_molecule_generation == True:
-        arguments.fragment_smiles = '[*:1]CC'
+        arguments.fragment_smiles = '[*:1]C'
     #Define STRIFE model
     
     STRIFE_model = STRIFE(arguments)

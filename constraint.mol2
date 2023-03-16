@@ -1,8 +1,9 @@
 @<TRIPOS>MOLECULE
 *****
- 0 0 0 0 0
+ 1 0 0 0 0
 SMALL
 GASTEIGER
 
 @<TRIPOS>ATOM
+      1 C         -41.9157   -2.5027    1.7812 C.3     1  UNL1        0.0000
 @<TRIPOS>BOND
